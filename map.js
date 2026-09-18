@@ -1,5 +1,5 @@
 /* ============================================================
-   MAP: зум/пан, рендер, элементы станций и тоннелей
+   MAP: зум/пан, рендер карты, элементы станций и тоннелей
    ============================================================ */
 
 const mapT={scale:1,tx:0,ty:0};
@@ -83,51 +83,121 @@ function initMapInteractions(){
 /* -------- РЕНДЕР КАРТЫ -------- */
 function renderMap(){
   const map=$('#map');
-  map.querySelectorAll('.station,.tunnel').forEach(e=>e.remove());
+  if(!map) return;
+  map.querySelectorAll('.station,.tunnel-marker').forEach(e=>e.remove());
   const svg=$('#connections'); svg.innerHTML='';
 
+  /* Отрисовка 3 сегментов на каждое соединение */
   CONNECTIONS.forEach(([a,b])=>{
-    const A=state.stations[a],B=state.stations[b]; if(!A||!B) return;
-    const tA=Object.values(state.tunnels).find(t=>t.from===a&&t.to===b);
-    const tB=Object.values(state.tunnels).find(t=>t.from===b&&t.to===a);
-    const colA=tA&&tA.owner!=='neutral'?FACTIONS[tA.owner].color:'#222';
-    const colB=tB&&tB.owner!=='neutral'?FACTIONS[tB.owner].color:'#222';
-    const midX=(A.x+B.x)/2, midY=(A.y+B.y)/2;
+    const A=state.stations[a], B=state.stations[b]; if(!A||!B) return;
+    const pair = getTunnelPair(a, b);
+    const tA = pair.A, tM = pair.M, tB = pair.B;
+
+    const p1x = A.x + (B.x - A.x) / 3;
+    const p1y = A.y + (B.y - A.y) / 3;
+    const p2x = A.x + 2*(B.x - A.x) / 3;
+    const p2y = A.y + 2*(B.y - A.y) / 3;
+
+    /* Цвета сегментов */
+    const colA = tA && tA.owner!=='neutral' ? FACTIONS[tA.owner].color : '#222';
+    const colM = tM && tM.owner!=='neutral' ? FACTIONS[tM.owner].color : '#222';
+    const colB = tB && tB.owner!=='neutral' ? FACTIONS[tB.owner].color : '#222';
+
+    /* Толщина сегментов */
+    const wA = tA && tA.owner!=='neutral' ? 6 : 3;
+    const wM = tM && tM.owner!=='neutral' ? 7 : 3;
+    const wB = tB && tB.owner!=='neutral' ? 6 : 3;
+
+    /* Сегмент A: от A до p1 */
     const l1=document.createElementNS('http://www.w3.org/2000/svg','line');
     l1.setAttribute('x1',A.x); l1.setAttribute('y1',A.y);
-    l1.setAttribute('x2',midX); l1.setAttribute('y2',midY);
+    l1.setAttribute('x2',p1x); l1.setAttribute('y2',p1y);
     l1.setAttribute('stroke',colA);
-    l1.setAttribute('stroke-width',tA&&tA.owner!=='neutral'?'6':'3');
+    l1.setAttribute('stroke-width',wA);
     l1.setAttribute('stroke-linecap','round');
+    if(tA && tA.owner==='neutral') l1.setAttribute('stroke-dasharray','4 6');
     svg.appendChild(l1);
+
+    /* Сегмент M: от p1 до p2 */
     const l2=document.createElementNS('http://www.w3.org/2000/svg','line');
-    l2.setAttribute('x1',B.x); l2.setAttribute('y1',B.y);
-    l2.setAttribute('x2',midX); l2.setAttribute('y2',midY);
-    l2.setAttribute('stroke',colB);
-    l2.setAttribute('stroke-width',tB&&tB.owner!=='neutral'?'6':'3');
+    l2.setAttribute('x1',p1x); l2.setAttribute('y1',p1y);
+    l2.setAttribute('x2',p2x); l2.setAttribute('y2',p2y);
+    l2.setAttribute('stroke',colM);
+    l2.setAttribute('stroke-width',wM);
     l2.setAttribute('stroke-linecap','round');
+    if(tM && tM.mutantNest) l2.setAttribute('stroke','#9c27b0');
+    else if(tM && tM.owner==='neutral') l2.setAttribute('stroke-dasharray','4 6');
     svg.appendChild(l2);
+
+    /* Сегмент B: от p2 до B */
+    const l3=document.createElementNS('http://www.w3.org/2000/svg','line');
+    l3.setAttribute('x1',p2x); l3.setAttribute('y1',p2y);
+    l3.setAttribute('x2',B.x); l3.setAttribute('y2',B.y);
+    l3.setAttribute('stroke',colB);
+    l3.setAttribute('stroke-width',wB);
+    l3.setAttribute('stroke-linecap','round');
+    if(tB && tB.owner==='neutral') l3.setAttribute('stroke-dasharray','4 6');
+    svg.appendChild(l3);
+
+    /* Метки-разделители в центре каждого сегмента */
+    const addSegMarker = (x, y, color, owner) => {
+      const circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      circle.setAttribute('cx', x);
+      circle.setAttribute('cy', y);
+      circle.setAttribute('r', 4);
+      circle.setAttribute('fill', owner !== 'neutral' ? color : '#333');
+      circle.setAttribute('stroke', '#0a0a0a');
+      circle.setAttribute('stroke-width', 1.5);
+      circle.style.pointerEvents = 'auto';
+      circle.style.cursor = 'pointer';
+      svg.appendChild(circle);
+    };
+
+    /* Ставим кликабельные маркеры в середине каждого сегмента */
+    if(tA) {
+      const mx = (A.x + p1x) / 2, my = (A.y + p1y) / 2;
+      addSegMarker(mx, my, colA, tA.owner);
+      /* Невидимый overlay для клика */
+      const hit = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      hit.setAttribute('cx', mx); hit.setAttribute('cy', my);
+      hit.setAttribute('r', 12); hit.setAttribute('fill', 'transparent');
+      hit.style.cursor = 'pointer';
+      hit.style.pointerEvents = 'auto';
+      hit.addEventListener('click', () => selectTunnel(tA.id));
+      svg.appendChild(hit);
+    }
+    if(tM) {
+      const mx = (p1x + p2x) / 2, my = (p1y + p2y) / 2;
+      addSegMarker(mx, my, colM, tM.owner);
+      const hit = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      hit.setAttribute('cx', mx); hit.setAttribute('cy', my);
+      hit.setAttribute('r', 14); hit.setAttribute('fill', 'transparent');
+      hit.style.cursor = 'pointer';
+      hit.style.pointerEvents = 'auto';
+      hit.addEventListener('click', () => selectTunnel(tM.id));
+      svg.appendChild(hit);
+    }
+    if(tB) {
+      const mx = (p2x + B.x) / 2, my = (p2y + B.y) / 2;
+      addSegMarker(mx, my, colB, tB.owner);
+      const hit = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      hit.setAttribute('cx', mx); hit.setAttribute('cy', my);
+      hit.setAttribute('r', 12); hit.setAttribute('fill', 'transparent');
+      hit.style.cursor = 'pointer';
+      hit.style.pointerEvents = 'auto';
+      hit.addEventListener('click', () => selectTunnel(tB.id));
+      svg.appendChild(hit);
+    }
   });
 
-  Object.values(state.tunnels).forEach(t=>{
-    const el=document.createElement('div');
-    el.className='tunnel'; el.dataset.id=t.id;
-    el.style.left=t.x+'px'; el.style.top=t.y+'px';
-    updateTunnelEl(el,t);
-    el.addEventListener('click',e=>{
-      if(suppressClick){ e.stopPropagation(); return; }
-      selectTunnel(t.id);
-    });
-    map.appendChild(el);
-  });
-
+  /* Станции */
   Object.values(state.stations).forEach(s=>{
     const el=document.createElement('div');
     el.className='station'; el.dataset.id=s.id;
     if(s.abandoned) el.classList.add('abandoned');
     el.style.left=s.x+'px'; el.style.top=s.y+'px';
     updateStationEl(el,s);
-    if(state.selectedType==='station'&&state.selected===s.id) el.classList.add('selected');
+    if(state.selectedType==='station' && state.selected===s.id) el.classList.add('selected');
     el.addEventListener('click',e=>{
       if(suppressClick){ e.stopPropagation(); return; }
       selectStation(s.id);
@@ -140,44 +210,62 @@ function updateStationEl(el,s){
   const color=s.owner==='neutral'?'var(--neutral)':FACTIONS[s.owner].color;
   el.style.color=color; el.style.borderColor=color;
   el.style.boxShadow=`0 0 8px ${color}55`;
+
+  /* Полоски отрядов вокруг станции */
+  const mySquads = state.squads.filter(q => q.stationId === s.id && q.owner === state.player);
+  const enemySquads = state.squads.filter(q => q.stationId === s.id && q.owner !== state.player && q.owner !== 'neutral');
+  const knownEnemySquads = enemySquads.filter(q => q.spied); /* Шпионаж */
+
+  let squadBars = '';
+  const totalBars = mySquads.length + (knownEnemySquads.length > 0 ? knownEnemySquads.length : 0);
+  if(totalBars > 0){
+    for(let i=0; i<Math.min(totalBars,5); i++){
+      const isMine = i < mySquads.length;
+      squadBars += `<div class="squad-bar ${isMine?'mine':'enemy'}"></div>`;
+    }
+  }
+
+  /* Флаг фракции */
+  let flagHtml = '';
+  if(s.owner !== 'neutral' && FACTIONS[s.owner].flag){
+    flagHtml = `<img class="station-flag" src="${FACTIONS[s.owner].flag}" alt="">`;
+  }
+
   let extra='';
   if(s.buildings.includes('camp')) extra+='<div class="camp-ico">☠</div>';
   if(s.buildings.length>0&&!s.buildings.includes('camp')) extra+='<div class="build-ico">🏗</div>';
-  if(s.mutantNest) extra+=`<div class="mutant-ico">🕷</div>`;
+  if(s.mutantNest) extra+=`<div class="mutant-ico">${ICONS.spider?`<img src="${ICONS.spider}" class="ico-img">`:'🕷'}</div>`;
   if(s.garrisonWeapon) extra+=`<div class="weap-ico">🔫</div>`;
-  if(s.owner!==state.player&&s.owner!=='neutral'){
-    const rel=getRelation(state.player,s.owner);
+  if(s.owner!==state.player && s.owner!=='neutral'){
+    const rel=getRelation(state.player, s.owner);
     if(rel==='trade'||rel==='defensive')
       extra+=`<div class="ally-ico">${rel==='defensive'?'🛡':'💰'}</div>`;
   }
   el.innerHTML=`<div class="gar">${s.garrison}</div>
     <div class="name">${s.name.length>9?s.name.slice(0,8)+'.':s.name}</div>
-    ${s.ring?'<div class="ring"></div>':''}${extra}`;
+    ${s.ring?'<div class="ring"></div>':''}
+    ${flagHtml}
+    ${squadBars}
+    ${extra}`;
   if(s.scared>0) el.style.filter='brightness(.6) saturate(2)';
   else el.style.filter='';
 }
 
 function updateTunnelEl(el,t){
-  const color=t.owner==='neutral'?'#333':FACTIONS[t.owner].color;
-  el.style.borderColor=color;
-  el.style.boxShadow=t.owner!=='neutral'?`0 0 8px ${color}88`:'none';
-  if(t.mutantNest) el.classList.add('has-mutants');
-  else el.classList.remove('has-mutants');
-  const buildIco=t.buildings.length>0?'<div class="build-ico">🏗</div>':'';
-  el.innerHTML=`<div class="tico">${t.garrison||''}</div>${buildIco}`;
+  /* Больше не используется для отрисовки — тоннели теперь SVG-линии */
 }
 
 /* -------- ВЫБОР -------- */
 function selectStation(id){
   state.selected=id; state.selectedType='station';
   document.querySelectorAll('.station').forEach(e=>e.classList.toggle('selected',e.dataset.id===id));
-  document.querySelectorAll('.tunnel').forEach(e=>e.classList.remove('selected'));
+  document.querySelectorAll('.tunnel-marker').forEach(e=>e.classList.remove('selected'));
   openPanel();
   renderPanel();
 }
 function selectTunnel(id){
   state.selected=id; state.selectedType='tunnel';
-  document.querySelectorAll('.tunnel').forEach(e=>e.classList.toggle('selected',e.dataset.id===id));
+  document.querySelectorAll('.tunnel-marker').forEach(e=>e.classList.toggle('selected',e.dataset.id===id));
   document.querySelectorAll('.station').forEach(e=>e.classList.remove('selected'));
   openPanel();
   renderPanel();

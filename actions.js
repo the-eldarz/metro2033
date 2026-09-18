@@ -1,5 +1,5 @@
 /* ============================================================
-   ACTIONS: постройки, отряды, способности, экономика, армия, арсенал
+   ACTIONS: постройки, отряды, способности, экономика, армия, арсенал, бестиарий, шпионаж
    ============================================================ */
 
 /* -------- БАЗОВЫЕ ДЕЙСТВИЯ -------- */
@@ -98,7 +98,7 @@ function renderBuildings(sid){
     const b=BUILDINGS[bid]; if(!b) return;
     h+=`<div class="build-card"><div class="bname">✅ ${b.name}</div><div class="bdesc">${b.desc}</div></div>`;
   });
-  const available=Object.entries(BUILDINGS).filter(([bid,b])=>{
+  const available=Object.entries(BUILDINGS).filter(([bid])=>{
     if(s.buildings.includes(bid)) return false;
     if(bid==='camp'&&fid!=='reich') return false;
     return true;
@@ -175,127 +175,34 @@ function buildTunnelStructure(tid,bid){
   refresh();
 }
 
-/* -------- ОТРЯДЫ НА СТАНЦИИ -------- */
-function renderSquads(sid){
-  const s=state.stations[sid];
-  const mySquads=stationSquads(sid).filter(q=>q.owner===state.player);
-  let h=`<div class="section-title">Отряды (${mySquads.length})</div>`;
-  if(!mySquads.length) h+=`<div style="color:#666;font-size:10px">Нет отрядов.</div>`;
-  mySquads.forEach(q=>{
-    const w=WEAPONS[q.weapon];
-    h+=`<div class="squad-card">
-      <div class="sname">👥 ${q.name} — ${q.size}</div>
-      <div class="sstats">🔫 ${w?w.name:'Без оружия'}${w?' (урон '+w.damage+')':''}</div>
-      <div class="actions">
-        <button class="btn small" onclick="renameSquad('${q.id}')">✏</button>
-        <button class="btn small" onclick="equipSquad('${q.id}')">🔫</button>
-        <button class="btn small" onclick="moveSquadPrompt('${q.id}')">↔</button>
-        <button class="btn small danger" onclick="disbandSquad('${q.id}')">✖</button>
-      </div>
-    </div>`;
-  });
-  h+=`<div class="section-title">Создать</div><div class="actions">
-    <button class="btn" onclick="createSquadPrompt('${sid}')" ${s.garrison<5?'disabled':''}>➕ Отряд (5👥)</button>
-  </div>
-  <div class="section-title">Снаряжение гарнизона</div><div class="actions">
-    <button class="btn" onclick="equipGarrisonPrompt('${sid}')">🔫 ${s.garrisonWeapon?WEAPONS[s.garrisonWeapon].name:'Без оружия'}</button>
-  </div>`;
-  return h;
-}
-
-/* -------- ДЕЙСТВИЯ СТАНЦИИ -------- */
-function renderStationActions(id){
-  const s=state.stations[id];
-  let h=`<div class="section-title">Действия</div><div class="actions">
-    <button class="btn" onclick="recruit()" ${canRecruit(id)?'':'disabled'}>👥 Рекрут (−10⚡ −15🍞)</button>
-    <button class="btn" onclick="fortify()" ${s.fort>=5||factionRes(state.player).ammo<25?'disabled':''}>🛡 Укрепить (−25⚡)</button>
-    <button class="btn" onclick="moveTroops()" ${s.garrison<=3?'disabled':''}>↔ Переброс</button>
-  </div>`;
-  h+=renderFactionActions(id);
-  return h;
-}
-
-/* -------- ДИПЛОМАТИЯ (компакт на станции) -------- */
-function renderFactionDiplomacy(fid){
-  const rel=getRelation(state.player,fid);
-  const betrayed=getBetrayed(state.player,fid);
-  const eternal=isEternalWar(state.player,fid);
-  if(!isFactionAlive(fid)) return '';
-  let h=`<div class="section-title">Дипломатия</div><div class="actions">`;
-  if(eternal){
-    h+=`<span style="color:#ff8a80;font-size:10px">Вечная война.</span>`;
-  } else {
-    if(rel!=='war') h+=`<button class="btn warn" onclick="diploAction('${fid}','war')">📜 Война</button>`;
-    if(rel==='war'){
-      if(betrayed) h+=`<button class="btn" disabled>🕊 Мир (невозможен)</button>`;
-      else h+=`<button class="btn diplo" onclick="diploAction('${fid}','peace')">🕊 Мир</button>`;
-    }
-    if(rel==='peace') h+=`<button class="btn diplo" onclick="diploAction('${fid}','trade')">💰 Торг</button>`;
-    if(rel==='trade') h+=`<button class="btn diplo" onclick="diploAction('${fid}','defensive')">🛡 Оборона</button>`;
-  }
-  h+=`</div>`;
-  return h;
-}
-
-function renderFactionActions(id){
-  const fid=state.player, f=FACTIONS[fid];
-  let h=`<div class="section-title">${f.abilityName}</div><div class="actions">`;
-  if(fid==='red'){
-    h+=`<button class="btn" onclick="abilityRed('${id}')" ${factionRes('red').ammo<20||state.stations[id].population<4?'disabled':''}>📣 Мобилизация</button>`;
-  } else if(fid==='hansa'){
-    h+=`<button class="btn" onclick="abilityHansa()" ${factionRes('hansa').influence<10?'disabled':''}>🐪 Караван (−10⚖)</button>`;
-  } else if(fid==='polis'){
-    const neut=stationNeighbors(id).filter(n=>state.stations[n].owner==='neutral'&&!state.stations[n].mutantNest);
-    if(neut.length){
-      h+=neut.map(n=>`<button class="btn" onclick="abilityPolis('${n}')" ${factionRes('polis').influence<30?'disabled':''}>🕊 ${state.stations[n].name}</button>`).join('');
-    } else h+=`<span style="color:#666;font-size:10px">Нет нейтралов рядом</span>`;
-  } else if(fid==='reich'){
-    h+=`<button class="btn" onclick="abilityReichCamp('${id}')" ${factionRes('reich').ammo<50||factionRes('reich').influence<30||state.stations[id].buildings.includes('camp')?'disabled':''}>☠ Концлагерь</button>`;
-  } else if(fid==='bandits'){
-    h+=`<button class="btn" onclick="abilityBandit('${id}')" ${state.stations[id].population<5?'disabled':''}>💰 Грабёж</button>`;
-  } else if(fid==='vdnh'){
-    h+=`<button class="btn" onclick="abilityVdnh()" ${factionRes('vdnh').food<30?'disabled':''}>🏪 30🍞→50⚡</button>`;
-  } else if(fid==='conf1905'){
-    h+=`<button class="btn" onclick="abilityConf()" ${factionRes('conf1905').influence<20?'disabled':''}>⚖ 20⚖→30/30</button>`;
-  }
-  h+=`</div>`;
-  return h;
-}
-
-function renderFactionEnemyActions(enemyId){
-  const fid=state.player;
-  if(fid!=='reich') return '';
-  const r=factionRes('reich');
-  let h=`<div class="section-title" style="color:#ff8a80">Карательные акции</div><div class="actions">`;
-  h+=`<button class="btn danger" onclick="reichGas('${enemyId}')" ${r.ammo<40||r.influence<25?'disabled':''}>☣ Газ. камера</button>`;
-  h+=`<button class="btn danger" onclick="reichHang('${enemyId}')" ${r.ammo<25||r.influence<15?'disabled':''}>🪢 Повешение</button>`;
-  h+=`<button class="btn danger" onclick="reichTorture('${enemyId}')" ${r.ammo<15?'disabled':''}>🔪 Пытки</button>`;
-  h+=`<button class="btn danger" onclick="reichShoot('${enemyId}')" ${r.ammo<30?'disabled':''}>🔫 Расстрел</button>`;
-  h+=`</div>`;
-  return h;
-}
-
 /* ============================================================
-   ОТРЯДЫ — действия
+   ОТРЯДЫ НА СТАНЦИИ — новая система
    ============================================================ */
-let squadCounter=0;
+
+/* Создание отряда — max 5 отрядов на станции, 5 человек в отряде */
 function createSquadPrompt(sid){
-  const s=state.stations[sid];
-  if(s.garrison<5){ toast('Мало бойцов'); return; }
-  const body=`Создать отряд из 5 бойцов?<br><br>
+  const s = state.stations[sid];
+  const existing = stationSquads(sid).filter(q => q.owner === state.player);
+  if(existing.length >= 5){ toast('Максимум 5 отрядов на станции'); return; }
+  if(s.garrison < 5){ toast('Мало бойцов'); return; }
+
+  const body = `Создать отряд из 5 бойцов?<br><br>
     <input type="text" id="sq-name" placeholder="Название" value="Отряд ${++squadCounter}"
-      style="width:100%;padding:6px;background:#1a1a1a;border:1px solid #333;color:#fff;font-size:12px">`;
-  showModal('Новый отряд',body,[
-    {label:'✅ Создать',action:()=>{
-      const name=document.getElementById('sq-name').value||('Отряд '+squadCounter);
-      s.garrison-=5;
-      state.squads.push({id:'sq'+(++squadCounter),name,size:5,weapon:null,stationId:sid,owner:state.player});
-      logMsg(state.player,`👥 Отряд «${name}» на «${s.name}».`);
+      style="width:100%;padding:6px;background:#1a1a1a;border:1px solid #333;color:#fff;font-size:12px">
+    <div style="font-size:11px;color:#888;margin-top:6px">Отрядов на станции: ${existing.length}/5</div>`;
+
+  showModal('Новый отряд', body, [
+    { label:'✅ Создать', action:()=>{
+      const name = document.getElementById('sq-name').value || ('Отряд '+squadCounter);
+      s.garrison -= 5;
+      state.squads.push({ id:'sq'+(++squadCounter), name, size:5, weapon:null, stationId:sid, owner:state.player, spied:false });
+      logMsg(state.player, `👥 Отряд «${name}» на «${s.name}».`);
       closeModal(); refresh();
     }},
-    {label:'Отмена',action:closeModal}
+    { label:'Отмена', action:closeModal }
   ]);
 }
+
 function renameSquad(qid){
   const q=state.squads.find(x=>x.id===qid); if(!q) return;
   const body=`<input type="text" id="sq-rename" value="${q.name}"
@@ -308,9 +215,10 @@ function renameSquad(qid){
     {label:'Отмена',action:closeModal}
   ]);
 }
+
 function equipSquad(qid){
   const q=state.squads.find(x=>x.id===qid); if(!q) return;
-  const available=Object.entries(state.weaponStock).filter(([wid,n])=>n>0);
+  const available=Object.entries(state.weaponStock).filter(([wid,n])=>n>0 && wid!=='knife' && wid!=='throwing_knife');
   if(!available.length){
     showModal('Оружие','Склад пуст.',[{label:'Ок',action:closeModal}]); return;
   }
@@ -331,9 +239,10 @@ function equipSquad(qid){
   choices.push({label:'Отмена',action:closeModal});
   showModal('Выбор оружия',`Текущее: ${q.weapon?WEAPONS[q.weapon].name:'нет'}`,choices);
 }
+
 function equipGarrisonPrompt(sid){
   const s=state.stations[sid];
-  const available=Object.entries(state.weaponStock).filter(([wid,n])=>n>0);
+  const available=Object.entries(state.weaponStock).filter(([wid,n])=>n>0 && wid!=='knife' && wid!=='throwing_knife');
   if(!available.length){
     showModal('Оружие гарнизона','Склад пуст.',[{label:'Ок',action:closeModal}]); return;
   }
@@ -354,18 +263,95 @@ function equipGarrisonPrompt(sid){
   choices.push({label:'Отмена',action:closeModal});
   showModal('Оружие гарнизона',`Текущее: ${s.garrisonWeapon?WEAPONS[s.garrisonWeapon].name:'нет'}`,choices);
 }
-function moveSquadPrompt(qid){
-  const q=state.squads.find(x=>x.id===qid); if(!q) return;
-  const targets=stationNeighbors(q.stationId).filter(n=>state.stations[n].owner===state.player);
-  if(!targets.length){ toast('Нет соседних станций'); return; }
-  const choices=targets.map(tid=>({label:`→ ${state.stations[tid].name}`,action:()=>{
-    q.stationId=tid;
-    logMsg(state.player,`Отряд «${q.name}» → «${state.stations[tid].name}».`);
-    closeModal(); refresh();
-  }}));
-  choices.push({label:'Отмена',action:closeModal});
-  showModal('Переброска отряда',`Куда «${q.name}»?`,choices);
+
+/* Перемещение отряда: выбираем отряд, потом тапаем на цель */
+let selectedSquadForMove = null;
+
+function selectSquadForMove(qid){
+  const q = state.squads.find(x => x.id === qid);
+  if(!q || q.owner !== state.player) return;
+  selectedSquadForMove = qid;
+  toast(`Выбран отряд «${q.name}». Тапни на станцию или тоннель`);
+  /* Подсвечиваем доступные цели */
+  highlightMoveTargets(q);
 }
+
+function highlightMoveTargets(q){
+  const currentStation = state.stations[q.stationId];
+  if(!currentStation) return;
+  /* Соседние станции */
+  const neighbors = stationNeighbors(q.stationId);
+  neighbors.forEach(nid => {
+    const el = document.querySelector(`.station[data-id="${nid}"]`);
+    if(el) el.classList.add('move-target');
+  });
+  /* Соседние сегменты тоннеля */
+  tunnelsAtStation(q.stationId).forEach(t => {
+    /* Подсвечиваем SVG-маркер */
+  });
+}
+
+function clearMoveHighlights(){
+  document.querySelectorAll('.move-target').forEach(e => e.classList.remove('move-target'));
+}
+
+/* Обработка тапа по станции/тоннелю при выбранном отряде */
+function tryMoveSquadTo(targetId, targetType){
+  if(!selectedSquadForMove) return false;
+  const q = state.squads.find(x => x.id === selectedSquadForMove);
+  if(!q) return false;
+
+  if(targetType === 'station'){
+    /* Проверяем соседство */
+    const neighbors = stationNeighbors(q.stationId);
+    if(!neighbors.includes(targetId)){
+      toast('Станция не соседняя');
+      return true;
+    }
+    const tgt = state.stations[targetId];
+    if(tgt.owner !== state.player){
+      /* Движение на чужую станцию = атака или захват */
+      toast('Для атаки выбери действие «Атака»');
+      selectedSquadForMove = null;
+      clearMoveHighlights();
+      return true;
+    }
+    q.stationId = targetId;
+    logMsg(state.player, `Отряд «${q.name}» → «${tgt.name}».`);
+    selectedSquadForMove = null;
+    clearMoveHighlights();
+    refresh();
+    return true;
+  }
+  if(targetType === 'tunnel'){
+    /* Проверяем, что сегмент соседний */
+    const adjacent = tunnelsAtStation(q.stationId).some(t => t.id === targetId);
+    if(!adjacent){
+      toast('Сегмент не соседний');
+      return true;
+    }
+    const t = state.tunnels[targetId];
+    if(t.owner !== state.player){
+      toast('Сегмент не ваш');
+      selectedSquadForMove = null;
+      clearMoveHighlights();
+      return true;
+    }
+    /* Размещаем отряд в тоннеле */
+    q.tunnelId = targetId;
+    logMsg(state.player, `Отряд «${q.name}» → тоннель.`);
+    selectedSquadForMove = null;
+    clearMoveHighlights();
+    refresh();
+    return true;
+  }
+  return false;
+}
+
+function moveSquadPrompt(qid){
+  selectSquadForMove(qid);
+}
+
 function disbandSquad(qid){
   const q=state.squads.find(x=>x.id===qid); if(!q) return;
   state.stations[q.stationId].garrison+=q.size;
@@ -376,7 +362,55 @@ function disbandSquad(qid){
 }
 
 /* ============================================================
-   ЭКОНОМИКА — сводка по всем постройкам
+   ШПИОНАЖ
+   ============================================================ */
+function sendSpyPrompt(targetStationId){
+  const s = state.stations[targetStationId];
+  const r = factionRes(state.player);
+  const cost = 30; /* Стоимость шпионажа */
+  if(r.influence < cost){ toast(`Нужно ${cost}⚖`); return; }
+  if(s.owner === state.player){ toast('Своя станция'); return; }
+
+  showModal('🕵 Шпионаж', `Отправить шпиона на «${s.name}»?<br><br>
+    Стоимость: <b>${cost}⚖</b><br>
+    Шанс успеха: <b>60%</b><br>
+    Если поймают — могут казнить или вернуть за выкуп.`, [
+    { label:'🕵 Отправить', action:()=>{
+      r.influence -= cost;
+      const success = Math.random() < 0.6;
+      if(success){
+        /* Раскрываем отряды на станции */
+        state.squads.filter(q => q.stationId === targetStationId && q.owner !== state.player)
+          .forEach(q => { q.spied = true; });
+        s.spied = true;
+        logMsg(state.player, `🕵 Шпион добыл сведения о «${s.name}».`, 'win');
+        toast('🕵 Успех!');
+      } else {
+        /* Провал */
+        const killed = Math.random() < 0.5;
+        if(killed){
+          logMsg(state.player, `🕵 Шпион казнён на «${s.name}».`, 'battle');
+          toast('💀 Шпион казнён');
+        } else {
+          /* Выкуп */
+          const ransom = 15;
+          if(r.influence >= ransom){
+            r.influence -= ransom;
+            logMsg(state.player, `🕵 Шпиона выкупили за ${ransom}⚖.`);
+            toast(`🕵 Выкуп ${ransom}⚖`);
+          } else {
+            logMsg(state.player, `🕵 Шпион в плену (нет на выкуп).`);
+          }
+        }
+      }
+      closeModal(); refresh();
+    }},
+    { label:'Отмена', action:closeModal }
+  ]);
+}
+
+/* ============================================================
+   ЭКОНОМИКА
    ============================================================ */
 function showEconomy(){
   let html=`<div style="font-size:11px;color:#888;margin-bottom:10px">
@@ -401,7 +435,6 @@ function showEconomy(){
     </div>`;
   });
 
-  /* Тоннельные постройки */
   html+=`<div class="section-title">Военные постройки тоннелей</div>`;
   Object.entries(TUNNEL_BUILDINGS).forEach(([bid,b])=>{
     if(bid==='gas_trap'&&state.player!=='reich') return;
@@ -425,8 +458,7 @@ function showEconomy(){
 }
 
 function economyDetail(bid){
-  const b=BUILDINGS[bid];
-  if(!b) return;
+  const b=BUILDINGS[bid]; if(!b) return;
   const myStations=Object.values(state.stations).filter(s=>s.owner===state.player);
   const res=factionRes(state.player);
   const can=res.food>=b.cost.food&&res.ammo>=b.cost.ammo&&res.influence>=b.cost.influence;
@@ -441,12 +473,14 @@ function economyDetail(bid){
       </div>`:''}
     </div>`;
   });
-  showModal(`🏗 ${b.name}`,html,[{label:'← Назад',action:()=>{closeModal();showEconomy();}},{label:'Закрыть',action:closeModal}]);
+  showModal(`🏗 ${b.name}`,html,[
+    {label:'← Назад',action:()=>{closeModal();showEconomy();}},
+    {label:'Закрыть',action:closeModal}
+  ]);
 }
 
 function economyDetailTunnel(bid){
-  const b=TUNNEL_BUILDINGS[bid];
-  if(!b) return;
+  const b=TUNNEL_BUILDINGS[bid]; if(!b) return;
   const myTunnels=Object.values(state.tunnels).filter(t=>t.owner===state.player&&!t.mutantNest);
   const res=factionRes(state.player);
   const can=res.food>=b.cost.food&&res.ammo>=b.cost.ammo;
@@ -455,7 +489,8 @@ function economyDetailTunnel(bid){
   if(!myTunnels.length){ html+=`<div style="color:#666;font-size:11px">Нет своих тоннелей.</div>`; }
   myTunnels.forEach(t=>{
     const has=t.buildings.includes(bid);
-    const name=`${state.stations[t.from].name} ↔ ${state.stations[t.to].name} (сег. ${t.seg})`;
+    const segLbl = t.seg===1?'◀':(t.seg===2?'●':'▶');
+    const name=`${segLbl} ${state.stations[t.from].name} ↔ ${state.stations[t.to].name}`;
     html+=`<div class="build-card">
       <div class="bname" style="${has?'color:#69f0ae':''}">${has?'✅':'⬜'} ${name}</div>
       ${!has?`<div class="actions">
@@ -463,7 +498,10 @@ function economyDetailTunnel(bid){
       </div>`:''}
     </div>`;
   });
-  showModal(`🏗 ${b.name}`,html,[{label:'← Назад',action:()=>{closeModal();showEconomy();}},{label:'Закрыть',action:closeModal}]);
+  showModal(`🏗 ${b.name}`,html,[
+    {label:'← Назад',action:()=>{closeModal();showEconomy();}},
+    {label:'Закрыть',action:closeModal}
+  ]);
 }
 
 function quickBuild(sid,bid){
@@ -478,7 +516,7 @@ function quickBuildTunnel(tid,bid){
 }
 
 /* ============================================================
-   АРМИЯ — все отряды (включая гарнизоны)
+   АРМИЯ
    ============================================================ */
 function showArmy(){
   const myStations=ownedStations(state.player);
@@ -494,22 +532,22 @@ function showArmy(){
     Отряды: <b style="color:#fff">${totalSquad}</b> чел. (${mySquads.length} шт.)
   </div>`;
 
-  /* Гарнизоны станций */
   html+=`<div class="section-title">Гарнизоны станций (${myStations.length})</div>`;
   if(!myStations.length) html+=`<div style="color:#666;font-size:10px">Нет станций.</div>`;
   myStations.forEach(s=>{
     const w=s.garrisonWeapon?WEAPONS[s.garrisonWeapon]:null;
+    const squadCount = stationSquads(s.id).filter(q=>q.owner===state.player).length;
     html+=`<div class="squad-card">
-      <div class="sname">🏛 ${s.name} — ${s.garrison} чел.</div>
-      <div class="sstats">🔫 ${w?w.name:'Без оружия'}${w?' (урон '+w.damage+')':''} · 🛡 Укрепления: ${s.fort}</div>
+      <div class="sname">🏛 ${s.name} — ${s.garrison} чел. (${squadCount}/5 отрядов)</div>
+      <div class="sstats">${w?`<img src="${w.icon||ICONS.weapon}" class="ico-img"> ${w.name}`:'Без оружия'} · 🛡 ${s.fort}</div>
       <div class="actions">
         <button class="btn small" onclick="closeModal();openPanelForStation('${s.id}')">📋 Открыть</button>
         <button class="btn small" onclick="equipGarrisonPrompt('${s.id}')">🔫 Оружие</button>
+        <button class="btn small" onclick="sendSpyPrompt('${s.id}')">🕵 Шпион</button>
       </div>
     </div>`;
   });
 
-  /* Мобильные отряды */
   html+=`<div class="section-title">Мобильные отряды (${mySquads.length})</div>`;
   if(!mySquads.length) html+=`<div style="color:#666;font-size:10px">Нет мобильных отрядов.</div>`;
   mySquads.forEach(q=>{
@@ -517,23 +555,23 @@ function showArmy(){
     const loc=state.stations[q.stationId];
     html+=`<div class="squad-card">
       <div class="sname">👥 ${q.name} — ${q.size} чел.</div>
-      <div class="sstats">📍 ${loc?loc.name:'?'} · 🔫 ${w?w.name:'Без оружия'}</div>
+      <div class="sstats">📍 ${loc?loc.name:'?'} · ${w?`<img src="${w.icon||ICONS.weapon}" class="ico-img"> ${w.name}`:'Без оружия'}</div>
       <div class="actions">
         <button class="btn small" onclick="renameSquad('${q.id}')">✏</button>
         <button class="btn small" onclick="equipSquad('${q.id}')">🔫</button>
-        <button class="btn small" onclick="moveSquadPrompt('${q.id}')">↔</button>
+        <button class="btn small" onclick="selectSquadForMove('${q.id}');closeModal()">↔ Двигать</button>
         <button class="btn small danger" onclick="disbandSquad('${q.id}')">✖</button>
       </div>
     </div>`;
   });
 
-  /* Создание отряда */
   html+=`<div class="section-title">Создать отряд</div>`;
-  html+=`<div style="font-size:10px;color:#888;margin-bottom:6px">Отряд берёт 5 бойцов из гарнизона станции.</div>`;
+  html+=`<div style="font-size:10px;color:#888;margin-bottom:6px">Отряд берёт 5 бойцов. Макс. 5 отрядов на станции.</div>`;
   myStations.forEach(s=>{
+    const cnt = stationSquads(s.id).filter(q=>q.owner===state.player).length;
     html+=`<div class="actions">
-      <button class="btn small" onclick="createSquadPrompt('${s.id}')" ${s.garrison<5?'disabled':''}>
-        ➕ ${s.name} (${s.garrison}👥)
+      <button class="btn small" onclick="createSquadPrompt('${s.id}')" ${s.garrison<5||cnt>=5?'disabled':''}>
+        ➕ ${s.name} (${s.garrison}👥, ${cnt}/5)
       </button>
     </div>`;
   });
@@ -549,13 +587,13 @@ function openPanelForStation(sid){
    АРСЕНАЛ
    ============================================================ */
 function showArmory(){
-  let html=`<div style="font-size:11px;color:#888;margin-bottom:10px">Оружие на складе.</div>`;
-  const entries=Object.entries(state.weaponStock).filter(([w,n])=>n>0);
+  let html=`<div style="font-size:11px;color:#888;margin-bottom:10px">Оружие на складе (без ножей).</div>`;
+  const entries=Object.entries(state.weaponStock).filter(([w,n])=>n>0 && w!=='knife' && w!=='throwing_knife');
   if(!entries.length) html+=`<div style="color:#666;font-size:11px">Склад пуст.</div>`;
   else entries.forEach(([wid,n])=>{
     const w=WEAPONS[wid];
     html+=`<div class="weapon-card">
-      <div class="wname">🔫 ${w.name} — ${n} шт.</div>
+      <div class="wname">${w.icon?`<img src="${w.icon}" class="weapon-icon">`:''} ${w.name} — ${n} шт.</div>
       <div class="wstats">Урон: ${w.damage} · Точность: ${w.accuracy}% · Дальность: ${w.range}</div>
       <div class="wdesc">${w.desc}</div>
     </div>`;
@@ -592,7 +630,55 @@ function produceWeapon(wid,cost){
 }
 
 /* ============================================================
-   ТОННЕЛИ — действия/захват
+   БЕСТИАРИЙ
+   ============================================================ */
+function showBestiary(){
+  const groups = {};
+  Object.entries(MUTANTS).forEach(([mid, m])=>{
+    if(!groups[m.group]) groups[m.group] = [];
+    groups[m.group].push({mid, m});
+  });
+
+  let html = `<div style="font-size:11px;color:#888;margin-bottom:10px">
+    Мутанты тоннелей метро. Справочник по канону Metro 2033 / Last Light.</div>`;
+
+  Object.entries(groups).forEach(([groupName, list])=>{
+    html += `<div class="section-title">${groupName}</div>`;
+    list.forEach(({mid, m})=>{
+      const foundIn = getMutantLocations(mid);
+      html += `<div class="mutant-card">
+        <div class="mname">${m.icon?`<img src="${m.icon}" class="mutant-icon">`:'🕷'} ${m.name}</div>
+        <div class="mstats">
+          HP: <b>${m.hp}</b> · Урон: <b>${m.damage}</b> ·
+          Стая: ${m.minP}-${m.maxP}
+          ${m.lightFear?' · 💡 боится света':''}
+          ${m.aquatic?' · 🌊 водный':''}
+        </div>
+        <div class="mdesc">${m.desc}</div>
+        ${foundIn.length?`<div style="font-size:10px;color:#888;margin-top:5px">
+          📍 Встречается: ${foundIn.join(', ')}</div>`:''}
+      </div>`;
+    });
+  });
+
+  showModal('🕷 Бестиарий', html, [{label:'Закрыть',action:closeModal}]);
+}
+
+function getMutantLocations(mid){
+  const locs = [];
+  Object.values(state.tunnels).forEach(t=>{
+    if(t.mutantNest === mid){
+      locs.push(`${state.stations[t.from].name} ↔ ${state.stations[t.to].name}`);
+    }
+  });
+  Object.values(state.stations).forEach(s=>{
+    if(s.mutantNest === mid) locs.push(s.name);
+  });
+  return [...new Set(locs)];
+}
+
+/* ============================================================
+   ТОННЕЛИ — действия (панель)
    ============================================================ */
 function renderTunnelActions(tid){
   const t=state.tunnels[tid];
@@ -635,65 +721,99 @@ function tunnelWithdraw(tid){
   choices.push({label:'Отмена',action:closeModal});
   showModal('Вывод','Куда?',choices);
 }
-function canCaptureTunnel(tid,fid){
-  const t=state.tunnels[tid];
-  if(state.stations[t.from].owner===fid||state.stations[t.to].owner===fid) return true;
-  const adjT=Object.values(state.tunnels).some(o=>{
-    if(o.owner!==fid||o.id===t.id) return false;
-    return (o.from===t.from&&o.to===t.to)||(o.from===t.to&&o.to===t.from);
-  });
-  return adjT;
+
+/* ============================================================
+   ЗАХВАТ ТОННЕЛЬНЫХ СЕГМЕНТОВ
+   ============================================================ */
+function canCaptureTunnel(tid, fid){
+  const t = state.tunnels[tid];
+  if(t.mutantNest) return false;
+  const p = getTunnelPair(t.from, t.to);
+  if(t.seg === 1) return state.stations[t.from].owner === fid;
+  if(t.seg === 3) return state.stations[t.to].owner === fid;
+  return (p.A && p.A.owner === fid) || (p.B && p.B.owner === fid);
 }
+
 function captureTunnelPrompt(tid){
   const t=state.tunnels[tid];
+  if(t.mutantNest){ toast('Сначала зачистите мутантов'); return; }
+
   const fromS=state.stations[t.from], toS=state.stations[t.to];
   const sources=[];
-  if(fromS.owner===state.player) sources.push({type:'station',id:t.from,garrison:fromS.garrison,name:fromS.name});
-  if(toS.owner===state.player) sources.push({type:'station',id:t.to,garrison:toS.garrison,name:toS.name});
-  const adjT=Object.values(state.tunnels).find(o=>o.owner===state.player&&
-    ((o.from===t.from&&o.to===t.to)||(o.from===t.to&&o.to===t.from)));
-  if(adjT) sources.push({type:'tunnel',id:adjT.id,garrison:adjT.garrison,name:'Соседний сегмент'});
 
-  if(!sources.length){ toast('Нет источников'); return; }
-  const choices=sources.map(s=>{
-    const max=Math.max(1,s.garrison-1);
-    const def=Math.max(3,t.garrison);
-    return {label:`Из ${s.name} (${s.garrison}👥)`,action:()=>{
-      const def2=Math.max(1,Math.min(max,def+2));
-      const body=`<div>Захватить тоннель? Понадобится ~${def} бойцов.</div>
-        <input type="range" id="tun-range" min="1" max="${max}" value="${def2}"
-          oninput="document.getElementById('tun-num').textContent=this.value">
-        <div style="text-align:center;font-size:18px"><b id="tun-num">${def2}</b> 👥</div>`;
-      showModal('Захват тоннеля',body,[
-        {label:'🏴 Захватить',action:()=>{
-          const n=parseInt(document.getElementById('tun-range').value,10);
+  if(t.seg === 1){
+    if(fromS.owner === state.player)
+      sources.push({type:'station', id:t.from, name:fromS.name, garrison:fromS.garrison});
+  } else if(t.seg === 3){
+    if(toS.owner === state.player)
+      sources.push({type:'station', id:t.to, name:toS.name, garrison:toS.garrison});
+  } else {
+    const p = getTunnelPair(t.from, t.to);
+    if(p.A && p.A.owner === state.player)
+      sources.push({type:'tunnel', id:p.A.id, name:'Подступ к '+fromS.name, garrison:p.A.garrison});
+    if(p.B && p.B.owner === state.player)
+      sources.push({type:'tunnel', id:p.B.id, name:'Подступ к '+toS.name, garrison:p.B.garrison});
+    if(fromS.owner === state.player)
+      sources.push({type:'station', id:t.from, name:fromS.name, garrison:fromS.garrison});
+    if(toS.owner === state.player)
+      sources.push({type:'station', id:t.to, name:toS.name, garrison:toS.garrison});
+  }
+
+  if(!sources.length){ toast('Нет источников для захвата'); return; }
+
+  const choices = sources.map(s=>{
+    return {label:`Из ${s.name} (${s.garrison}👥)`, action:()=>{
+      const body = `<div>Захватить сегмент тоннеля?</div>
+        <div style="font-size:11px;color:#888;margin-top:6px">
+          Сегмент ${t.seg===1?'◀ (подступ к '+fromS.name+')':(t.seg===2?'● (центральный)':'▶ (подступ к '+toS.name+')')}
+        </div>
+        <input type="range" id="tun-range" min="1" max="${Math.max(1,s.garrison-1)}"
+          value="3" oninput="document.getElementById('tun-num').textContent=this.value">
+        <div style="text-align:center;font-size:18px"><b id="tun-num">3</b> 👥</div>`;
+      showModal('Захват сегмента', body, [
+        {label:'🏴 Захватить', action:()=>{
+          const n = parseInt(document.getElementById('tun-range').value,10);
           closeModal();
-          doCaptureTunnel(tid,s,n);
+          doCaptureSegment(tid, s, n);
         }},
-        {label:'Отмена',action:closeModal}
+        {label:'Отмена', action:closeModal}
       ]);
     }};
   });
   choices.push({label:'Отмена',action:closeModal});
-  showModal('Источник войск','Откуда?',choices);
+  showModal('Источник войск', `Откуда отправить бойцов в сегмент?`, choices);
 }
-function doCaptureTunnel(tid,source,n){
-  const t=state.tunnels[tid];
-  let srcGar;
-  if(source.type==='station') srcGar=state.stations[source.id];
-  else srcGar=state.tunnels[source.id];
-  if(srcGar.garrison<n){ toast('Мало бойцов'); return; }
-  const power=n*(0.85+Math.random()*0.3);
-  const def=t.garrison*1.5;
-  srcGar.garrison-=n;
-  if(power>def){
-    const surv=Math.max(1,Math.round(n*(1-def/power)*0.7));
-    const lost=n-surv;
-    t.owner=state.player; t.garrison=surv;
-    logMsg(state.player,`🏴 Тоннель захвачен. −${lost}, гарнизон ${surv}.`,'win');
-    state.selected=tid; state.selectedType='tunnel';
+
+function doCaptureSegment(tid, source, n){
+  const t = state.tunnels[tid];
+  let src;
+  if(source.type === 'station') src = state.stations[source.id];
+  else src = state.tunnels[source.id];
+
+  if(!src || src.garrison < n){ toast('Мало бойцов'); return; }
+
+  const isEmpty = !t.mutantNest && t.owner === 'neutral' && t.garrison === 0;
+  src.garrison -= n;
+
+  if(isEmpty){
+    t.owner = state.player;
+    t.garrison = n;
+    logMsg(state.player, `🏴 Сегмент тоннеля занят без потерь (+${n}).`, 'win');
   } else {
-    logMsg(state.player,`⚔ Штурм провален. −${Math.round(n*0.7)}.`,'battle');
+    const power = n * (0.85 + Math.random()*0.3);
+    const def = t.garrison * 1.5;
+    if(power > def){
+      const surv = Math.max(1, Math.round(n * (1 - def/power) * 0.7));
+      const lost = n - surv;
+      t.owner = state.player;
+      t.garrison = surv;
+      logMsg(state.player, `🏴 Сегмент захвачен. −${lost}, гарнизон ${surv}.`, 'win');
+    } else {
+      const lost = Math.round(n * 0.7);
+      src.garrison += Math.max(0, n - lost);
+      logMsg(state.player, `⚔ Штурм сегмента провален. −${lost}.`, 'battle');
+    }
   }
+  state.selected = tid; state.selectedType = 'tunnel';
   refresh();
 }

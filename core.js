@@ -83,6 +83,26 @@ function powerRating(fid){
   return totalSoldiers(fid)+ownedStations(fid).length*8+(f.ammo+f.food+f.influence)/30;
 }
 
+/* -------- ПОИСК СЕГМЕНТОВ ТОННЕЛЯ -------- */
+/* Возвращает тройку {A, M, B} для пары станций */
+function getTunnelPair(a, b){
+  const list = Object.values(state.tunnels).filter(t =>
+    (t.from===a && t.to===b) || (t.from===b && t.to===a)
+  );
+  const A = list.find(t => t.seg===1);
+  const M = list.find(t => t.seg===2);
+  const B = list.find(t => t.seg===3);
+  return { A, M, B, all: list };
+}
+
+/* Ближайший к станции сегмент */
+function segmentNearStation(stationId, otherId){
+  const p = getTunnelPair(stationId, otherId);
+  if(p.A && (p.A.from===stationId)) return p.A;
+  if(p.B && (p.B.from===stationId)) return p.B;
+  return null;
+}
+
 /* -------- ИНИЦИАЛИЗАЦИЯ -------- */
 function initGame(playerFid){
   state.turn=1; state.player=playerFid; state.selected=null; state.selectedType=null;
@@ -98,7 +118,7 @@ function initGame(playerFid){
       owner:START_OWNERS[sd.id]||'neutral',
       garrison:0,population:20+rand(0,25),fort:0,scared:0,
       buildings:[],maxGarrison:60,
-      mutantNest:MUTANT_NESTS[sd.id]||null,
+      mutantNest:MUTANT_STATION_NESTS[sd.id]||null,
       garrisonWeapon:null
     };
   });
@@ -111,19 +131,33 @@ function initGame(playerFid){
     else s.garrison=12+rand(0,8);
   });
 
-  /* Тоннели */
+  /* Тоннели — 3 сегмента на соединение */
   state.tunnels={};
   TUNNELS_DATA.forEach(td=>{
+    let nest = null;
+    /* Мутанты только в центральном сегменте */
+    if(td.seg === 2){
+      const key1 = td.from + '|' + td.to;
+      const key2 = td.to + '|' + td.from;
+      nest = MUTANT_NESTS[key1] || MUTANT_NESTS[key2] || null;
+    }
     state.tunnels[td.id]={
-      id:td.id,from:td.from,to:td.to,x:td.x,y:td.y,seg:td.seg,
-      owner:'neutral',garrison:0,fort:0,buildings:[],
-      mutantNest:MUTANT_NESTS[td.from+'|'+td.to]||null
+      id:td.id, pairId:td.pairId,
+      from:td.from, to:td.to, seg:td.seg,
+      x:td.x, y:td.y,
+      owner:'neutral', garrison:0, fort:0, buildings:[],
+      mutantNest: nest
     };
   });
+
+  /* Стартовые владения тоннелями: если обе станции одной фракции — все 3 сегмента её */
   Object.values(state.tunnels).forEach(t=>{
-    const fo=state.stations[t.from].owner;
-    const to=state.stations[t.to].owner;
-    if(fo!=='neutral'&&fo===to){ t.owner=fo; t.garrison=3; }
+    const fo = state.stations[t.from].owner;
+    const to = state.stations[t.to].owner;
+    if(fo !== 'neutral' && fo === to){
+      t.owner = fo;
+      t.garrison = t.seg === 2 ? 4 : 2; // центр охраняется сильнее
+    }
   });
 
   /* Фракции */
@@ -140,7 +174,7 @@ function initGame(playerFid){
 
   const fids=Object.keys(FACTIONS);
   fids.forEach(a=>fids.forEach(b=>{
-    if(a!==b&&!isEternalWar(a,b)) setRelation(a,b,'neutral');
+    if(a!==b && !isEternalWar(a,b)) setRelation(a,b,'neutral');
   }));
   setRelation('red','reich','war');
 

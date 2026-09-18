@@ -30,8 +30,12 @@ function attackPrompt(srcId,tgtId){
     else warning=`<div class="warn-box">⚠ Нападение врасплох: −50⚖, война, мир невозможен.</div>`;
   }
 
+  /* Для пустой нейтральной станции — без потерь */
+  const isPeacefulNeutral = isNeutral && tgt.garrison === 0 && !tgt.mutantNest;
+
   const body=`<div>Из <b>${src.name}</b> (${src.garrison}) на <b>${tgt.name}</b> (${tgt.garrison}, 🛡${tgt.fort}).</div>
     <div style="margin-top:6px;font-size:11px;color:#888">Защита ~${def}${squadBonus>0?' · Оружие +'+Math.round(squadBonus)+'%':''}</div>
+    ${isPeacefulNeutral ? '<div class="warn-box" style="background:#0d2a0d;border-color:#2a5a2a;color:#a5d6a7">Станция пуста — займёте без потерь</div>' : ''}
     ${warning}
     <input type="range" id="atk-range" min="1" max="${max}" value="${defaultVal}"
       oninput="document.getElementById('atk-num').textContent=this.value">
@@ -39,7 +43,13 @@ function attackPrompt(srcId,tgtId){
 
   const choices=[];
   const getN=()=>parseInt(document.getElementById('atk-range').value,10);
-  if(needSurprise&&!isBetrayed){
+
+  if(isPeacefulNeutral){
+    choices.push({label:'🚶 Занять станцию (без потерь)',action:()=>{
+      const n=getN(); closeModal();
+      occupyEmptyStation(srcId, tgtId, n);
+    }});
+  } else if(needSurprise && !isBetrayed){
     choices.push({label:'📜 Объявить войну и атаковать',action:()=>{
       const n=getN(); closeModal();
       declareWarFormal(state.player,enemyOwner);
@@ -58,6 +68,19 @@ function attackPrompt(srcId,tgtId){
   }
   choices.push({label:'Отмена',action:closeModal});
   showModal('Атака',body,choices);
+}
+
+/* Мирное занятие пустой станции — без потерь */
+function occupyEmptyStation(srcId, tgtId, n){
+  const src = state.stations[srcId];
+  const tgt = state.stations[tgtId];
+  if(src.garrison < n){ toast('Мало бойцов'); return; }
+  src.garrison -= n;
+  tgt.owner = state.player;
+  tgt.garrison = n;
+  logMsg(state.player, `🚶 «${tgt.name}» занята без потерь (+${n} гарнизон).`, 'win');
+  state.selected = tgt.id; state.selectedType = 'station';
+  refresh();
 }
 
 function resolveAttack(srcId,tgtId,n){
@@ -228,95 +251,142 @@ function diploAction(targetFid,type){
   closeModal(); refresh();
 }
 
-/* -------- МУТАНТЫ -------- */
+/* ============================================================
+   МУТАНТЫ
+   ============================================================ */
+
+/* Зачистка гнезда в тоннеле */
 function clearMutantTunnel(tid){
   const t=state.tunnels[tid];
   if(!t.mutantNest){ toast('Нет гнезда'); return; }
   const m=MUTANTS[t.mutantNest];
+
+  /* Источники силы: подступы (соседние сегменты) и станции рядом */
   let power=0;
-  const fromS=state.stations[t.from], toS=state.stations[t.to];
-  if(fromS.owner===state.player) power+=fromS.garrison;
-  if(toS.owner===state.player) power+=toS.garrison;
+  const p = getTunnelPair(t.from, t.to);
+  const fromS = state.stations[t.from], toS = state.stations[t.to];
+
+  if(fromS.owner === state.player) power += fromS.garrison;
+  if(toS.owner === state.player) power += toS.garrison;
+
+  if(p.A && p.A.owner === state.player) power += p.A.garrison * 1.5;
+  if(p.B && p.B.owner === state.player) power += p.B.garrison * 1.5;
+
+  /* Отряды на соседних станциях */
   state.squads.filter(q=>q.owner===state.player).forEach(q=>{
-    if(q.stationId===t.from||q.stationId===t.to){
-      power+=q.size*(q.weapon?WEAPONS[q.weapon].damage/10:1);
+    if(q.stationId===t.from || q.stationId===t.to){
+      power += q.size * (q.weapon ? WEAPONS[q.weapon].damage/10 : 1);
     }
   });
-  const need=m.hp*2*(m.pack?1.5:1);
-  if(power<need){ toast(`Нужно ~${Math.round(need)} силы`); return; }
-  const lost=Math.min(Math.round(need/15),Math.max(0,fromS.owner===state.player?fromS.garrison-2:0));
-  if(fromS.owner===state.player) fromS.garrison-=lost;
-  t.mutantNest=null;
-  t.owner=state.player; t.garrison=Math.max(2,Math.round(need/10));
-  logMsg(state.player,`✅ Гнездо ${m.name} зачищено! −${lost} бойцов.`,'win');
+
+  /* Бонус от прожектора в соседних сегментах */
+  let lightBonus = 0;
+  if(m.lightFear){
+    if((p.A && p.A.buildings.includes('searchlight')) ||
+       (p.B && p.B.buildings.includes('searchlight'))) lightBonus = 0.3;
+  }
+
+  const need = m.hp * 2 * (m.pack ? 1.5 : 1) * (1 - lightBonus);
+  if(power < need){ toast(`Нужно ~${Math.round(need)} силы`); return; }
+
+  /* Победа с потерями */
+  const lost = Math.min(Math.round(need/15), Math.max(0, fromS.owner===state.player ? fromS.garrison-2 : 0));
+  if(fromS.owner===state.player) fromS.garrison -= lost;
+
+  t.mutantNest = null;
+  t.owner = state.player;
+  t.garrison = Math.max(2, Math.round(need/10));
+  logMsg(state.player, `✅ Гнездо ${m.name} зачищено! Тоннель занят. −${lost} бойцов.`, 'win');
   refresh();
 }
+
+/* Зачистка гнезда на станции */
 function clearMutantStation(sid){
   const s=state.stations[sid];
   if(!s.mutantNest){ toast('Нет гнезда'); return; }
   const m=MUTANTS[s.mutantNest];
   let power=0;
+
   stationNeighbors(sid).forEach(nid=>{
-    if(state.stations[nid].owner===state.player) power+=state.stations[nid].garrison*0.7;
+    if(state.stations[nid].owner===state.player) power += state.stations[nid].garrison * 0.7;
   });
   state.squads.filter(q=>q.owner===state.player).forEach(q=>{
     if(stationNeighbors(sid).includes(q.stationId))
-      power+=q.size*(q.weapon?WEAPONS[q.weapon].damage/10:1);
+      power += q.size * (q.weapon ? WEAPONS[q.weapon].damage/10 : 1);
   });
-  const need=m.hp*2.5*(m.pack?1.4:1);
-  if(power<need){ toast(`Нужно ~${Math.round(need)} силы`); return; }
-  s.mutantNest=null; s.owner=state.player; s.garrison=Math.max(3,Math.round(need/15));
-  logMsg(state.player,`✅ Гнездо ${m.name} на «${s.name}» зачищено!`,'win');
+
+  const need = m.hp * 2.5 * (m.pack ? 1.4 : 1);
+  if(power < need){ toast(`Нужно ~${Math.round(need)} силы`); return; }
+
+  s.mutantNest = null;
+  s.owner = state.player;
+  s.garrison = Math.max(3, Math.round(need/15));
+  logMsg(state.player, `✅ Гнездо ${m.name} на «${s.name}» зачищено!`, 'win');
   refresh();
 }
+
+/* Ход мутантов — атаки */
 function mutantTurn(){
   const nests=[];
   Object.values(state.tunnels).forEach(t=>{ if(t.mutantNest) nests.push({type:'tunnel',obj:t}); });
   Object.values(state.stations).forEach(s=>{ if(s.mutantNest) nests.push({type:'station',obj:s}); });
 
   nests.forEach(nest=>{
-    if(Math.random()>0.35) return;
-    const m=MUTANTS[nest.obj.mutantNest];
-    const packSize=rand(m.minP,m.maxP);
-    let targets=[];
-    if(nest.type==='tunnel'){
-      const t=nest.obj;
-      const other=Object.values(state.tunnels).find(o=>
-        o.id!==t.id&&((o.from===t.from&&o.to===t.to)||(o.from===t.to&&o.to===t.from))
-      );
-      if(other&&other.owner!=='neutral') targets.push({type:'tunnel',obj:other});
-    }
-    if(nest.type==='station'){
-      const s=nest.obj;
+    if(Math.random() > 0.35) return;
+    const m = MUTANTS[nest.obj.mutantNest];
+    const packSize = rand(m.minP, m.maxP);
+    let targets = [];
+
+    if(nest.type === 'tunnel'){
+      /* Мутанты из центра могут атаковать любой подступ той же пары */
+      const t = nest.obj;
+      const p = getTunnelPair(t.from, t.to);
+      [p.A, p.B].forEach(seg=>{
+        if(seg && seg.owner !== 'neutral' && seg.id !== t.id) targets.push({type:'tunnel', obj:seg});
+      });
+      /* Или соседние станции */
+      [state.stations[t.from], state.stations[t.to]].forEach(st=>{
+        if(st.owner !== 'neutral' && !st.mutantNest) targets.push({type:'station', obj:st});
+      });
+    } else {
+      /* Мутанты со станции — атакуют соседние станции/тоннели */
+      const s = nest.obj;
       stationNeighbors(s.id).forEach(nid=>{
-        const ns=state.stations[nid];
-        if(ns.owner!=='neutral'&&!ns.mutantNest) targets.push({type:'station',obj:ns});
+        const ns = state.stations[nid];
+        if(ns.owner !== 'neutral' && !ns.mutantNest) targets.push({type:'station', obj:ns});
       });
       tunnelsAtStation(s.id).forEach(t=>{
-        if(t.owner!=='neutral') targets.push({type:'tunnel',obj:t});
+        if(t.owner !== 'neutral') targets.push({type:'tunnel', obj:t});
       });
     }
+
     if(!targets.length) return;
-    const tgt=pick(targets);
+    const tgt = pick(targets);
 
-    let lightBonus=0;
-    if(m.lightFear&&tgt.type==='tunnel'&&tgt.obj.buildings.includes('searchlight')) lightBonus=0.5;
-    const mutantPower=packSize*m.damage*(1-lightBonus);
-    const def=tgt.obj.garrison+tgt.obj.fort*3;
+    /* Учёт прожектора */
+    let lightBonus = 0;
+    if(m.lightFear && tgt.type === 'tunnel' && tgt.obj.buildings.includes('searchlight'))
+      lightBonus = 0.5;
 
-    if(mutantPower>def){
-      const lost=Math.min(tgt.obj.garrison,Math.ceil(packSize/2));
-      tgt.obj.garrison=Math.max(0,tgt.obj.garrison-lost);
-      if(tgt.obj.garrison<=0){
-        tgt.obj.owner='neutral';
-        logMsg('event',`🕷️ ${m.name} (x${packSize}) захватили ${tgt.type==='tunnel'?'тоннель':'«'+tgt.obj.name+'»'}!`,'mutant');
+    const mutantPower = packSize * m.damage * (1 - lightBonus);
+    const def = tgt.obj.garrison + tgt.obj.fort * 3;
+
+    if(mutantPower > def){
+      const lost = Math.min(tgt.obj.garrison, Math.ceil(packSize/2));
+      tgt.obj.garrison = Math.max(0, tgt.obj.garrison - lost);
+      if(tgt.obj.garrison <= 0){
+        tgt.obj.owner = 'neutral';
+        logMsg('event',
+          `🕷️ ${m.name} (x${packSize}) захватили ${tgt.type==='tunnel'?'сегмент тоннеля':'«'+tgt.obj.name+'»'}!`,
+          'mutant');
       } else {
-        logMsg('event',`🕷️ ${m.name} атаковали: −${lost} бойцов.`,'mutant');
+        logMsg('event', `🕷️ ${m.name} атаковали: −${lost} бойцов.`, 'mutant');
       }
     } else {
-      const killed=Math.min(packSize,Math.ceil(def/m.damage));
-      logMsg('event',`🛡️ Отбито ${killed} ${m.name}.`,'mutant');
-      if(nest.type==='tunnel'&&Math.random()<0.2) nest.obj.mutantNest=null;
+      const killed = Math.min(packSize, Math.ceil(def / m.damage));
+      logMsg('event', `🛡️ Отбито ${killed} ${m.name}.`, 'mutant');
+      /* Шанс что гнездо исчезнет после провала */
+      if(nest.type === 'tunnel' && Math.random() < 0.15) nest.obj.mutantNest = null;
     }
   });
 }

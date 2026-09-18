@@ -2,7 +2,6 @@
    UI: панели, меню, модалки, лог, HUD
    ============================================================ */
 
-/* -------- ПРАВАЯ ПАНЕЛЬ -------- */
 function openPanel(){
   const sb=document.getElementById('sidebar');
   if(sb) sb.classList.add('open');
@@ -11,14 +10,13 @@ function closePanel(){
   const sb=document.getElementById('sidebar');
   if(sb) sb.classList.remove('open');
   state.selected=null; state.selectedType=null;
-  document.querySelectorAll('.station,.tunnel').forEach(e=>e.classList.remove('selected'));
+  document.querySelectorAll('.station,.tunnel-marker').forEach(e=>e.classList.remove('selected'));
 }
 function renderPanel(){
   if(state.selectedType==='tunnel') renderTunnelPanel();
   else if(state.selectedType==='station') renderStationPanel();
 }
 
-/* -------- ЛЕВОЕ МЕНЮ -------- */
 function toggleLeftMenu(){
   const lm=document.getElementById('left-menu');
   if(lm) lm.classList.toggle('hidden');
@@ -63,7 +61,6 @@ function checkGoalDone(fid){
   return false;
 }
 
-/* -------- ЛОГ -------- */
 function logMsg(fid,text,cls){
   const tag=fid&&FACTIONS[fid]?`<span class="lg-${fid}">[${FACTIONS[fid].short}]</span>`:'';
   const clsStr=cls?`lg-${cls}`:(fid?`lg-${fid}`:'');
@@ -77,21 +74,15 @@ function renderLog(){
   el.scrollTop=el.scrollHeight;
 }
 
-/* -------- ОБНОВЛЕНИЕ -------- */
 function refresh(){
   renderHeader();
   document.querySelectorAll('.station').forEach(el=>{
     const s=state.stations[el.dataset.id];
     if(s) updateStationEl(el,s);
   });
-  document.querySelectorAll('.tunnel').forEach(el=>{
-    const t=state.tunnels[el.dataset.id];
-    if(t) updateTunnelEl(el,t);
-  });
   renderPanel();
 }
 
-/* -------- МОДАЛКА / ТОСТ -------- */
 function toast(text){
   const t=document.createElement('div');
   t.className='toast'; t.textContent=text;
@@ -129,7 +120,6 @@ function renderStationPanel(){
 
   let html=`<h2>${s.name} ${s.ring?'<span style="color:#888;font-size:10px">• Кольцо</span>':''}</h2>`;
 
-  /* Баннер врага */
   if(!isMine&&s.owner!=='neutral'){
     const f=FACTIONS[s.owner];
     const rel=getRelation(state.player,s.owner);
@@ -141,6 +131,7 @@ function renderStationPanel(){
 
     html+=`<div class="faction-info">
       <div class="faction-banner" style="--fc:${f.color}">
+        ${f.flag?`<img src="${f.flag}" class="faction-flag">`:''}
         <div class="faction-short">${f.short}</div>
         <div class="faction-details">
           <div class="faction-name">${f.name}</div>
@@ -194,6 +185,12 @@ function renderStationPanel(){
       </div>`;
       html+=renderFactionEnemyActions(id);
     }
+    /* Шпионаж */
+    if(!state.gameOver){
+      html+=`<div class="section-title">Разведка</div><div class="actions">
+        <button class="btn" onclick="sendSpyPrompt('${id}')">🕵 Отправить шпиона (30⚖)</button>
+      </div>`;
+    }
   }
   panel.innerHTML=html;
 }
@@ -214,7 +211,7 @@ function renderTunnelPanel(){
   const ownerName=t.owner==='neutral'?'Нейтральный':FACTIONS[t.owner].name;
 
   let html=`<h2>Тоннель ${fromS.name} ↔ ${toS.name}</h2>
-    <div style="color:#888;font-size:10px;margin-bottom:6px">Сегмент ${t.seg===1?'от '+fromS.name:'от '+toS.name}</div>
+    <div style="color:#888;font-size:10px;margin-bottom:6px">Сегмент ${t.seg===1?'от '+fromS.name:(t.seg===2?'центральный':'от '+toS.name)}</div>
     <div class="row"><span>Владелец</span><b style="color:${color}">${ownerName}</b></div>`;
 
   if(t.mutantNest){
@@ -240,7 +237,7 @@ function renderTunnelPanel(){
   } else {
     if(canCaptureTunnel(id,state.player)){
       html+=`<div class="section-title">Захват</div><div class="actions">
-        <button class="btn" onclick="captureTunnelPrompt('${id}')">🏴 Захватить тоннель</button>
+        <button class="btn" onclick="captureTunnelPrompt('${id}')">🏴 Захватить сегмент</button>
       </div>`;
     } else {
       html+=`<div style="color:#666;font-size:10px;margin-top:8px">Нет соседних ваших станций/тоннелей.</div>`;
