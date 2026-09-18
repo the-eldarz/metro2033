@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0a">
+<title>Метро 2033: Война за Тоннели</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ ПОВОРОТ ============ -->
+<div id="rotate-overlay" class="hidden">
+  <div class="ricon">📱</div>
+  <h2>ПОВЕРНИТЕ УСТРОЙСТВО</h2>
+  <p>Игра работает только в альбомной ориентации.</p>
+  <button onclick="tryLockOrientation()">АКТИВИРОВАТЬ</button>
+</div>
+
+<!-- ============ ГЛАВНОЕ МЕНЮ (AoH2) ============ -->
+<div id="main-menu" class="aoh-screen">
+  <div class="aoh-bg">
+    <svg class="aoh-metro-bg" viewBox="0 0 1400 900" preserveAspectRatio="xMidYMid slice">
+      <circle cx="700" cy="450" r="280" fill="none" stroke="#3a5068" stroke-width="1.5" stroke-dasharray="4 6"/>
+      <circle cx="700" cy="450" r="120" fill="none" stroke="#3a5068" stroke-width="1" stroke-dasharray="2 4"/>
+      <line x1="200" y1="200" x2="700" y2="170" stroke="#2a4058" stroke-width="1"/>
+      <line x1="700" y1="170" x2="1200" y2="300" stroke="#2a4058" stroke-width="1"/>
+      <line x1="1200" y1="300" x2="900" y2="800" stroke="#2a4058" stroke-width="1"/>
+      <line x1="900" y1="800" x2="300" y2="700" stroke="#2a4058" stroke-width="1"/>
+      <line x1="300" y1="700" x2="200" y2="200" stroke="#2a4058" stroke-width="1"/>
+      <line x1="400" y1="450" x2="900" y2="450" stroke="#2a4058" stroke-width="0.8"/>
+      <line x1="700" y1="250" x2="700" y2="700" stroke="#2a4058" stroke-width="0.8"/>
+    </svg>
+  </div>
+
+  <div class="aoh-title-wrap">
+    <div class="aoh-title">МЕТРО</div>
+    <div class="aoh-subtitle">2033 · ВОЙНА ЗА ТОННЕЛИ</div>
+  </div>
+
+  <div class="aoh-menu">
+    <button class="aoh-menu-btn" onclick="openFactionSelect()">Играть</button>
+    <button class="aoh-menu-btn disabled" title="Скоро">Редактор</button>
+    <button class="aoh-menu-btn" onclick="showSettings()">Настройки</button>
+    <button class="aoh-menu-btn" onclick="showAbout()">Справка</button>
+    <button class="aoh-menu-btn" onclick="tryExit()">Покинуть игру</button>
+  </div>
+
+  <div class="aoh-version">ВЕРСИЯ 0.3 · METRO 2033: ВОЙНА ЗА ТОННЕЛИ</div>
+</div>
+
+<!-- ============ ВЫБОР ФРАКЦИИ ============ -->
+<div id="faction-select" class="aoh-screen hidden">
+  <div class="aoh-bg fs-bg">
+    <svg class="aoh-metro-bg" viewBox="0 0 1400 900" preserveAspectRatio="xMidYMid slice">
+      <circle cx="700" cy="450" r="280" fill="none" stroke="#3a5068" stroke-width="1.5" stroke-dasharray="4 6"/>
+      <line x1="200" y1="200" x2="1200" y2="300" stroke="#2a4058" stroke-width="1"/>
+      <line x1="1200" y1="300" x2="900" y2="800" stroke="#2a4058" stroke-width="1"/>
+      <line x1="900" y1="800" x2="300" y2="700" stroke="#2a4058" stroke-width="1"/>
+      <line x1="300" y1="700" x2="200" y2="200" stroke="#2a4058" stroke-width="1"/>
+    </svg>
+  </div>
+
+  <div class="fs-header">
+    <div class="fs-title">ВЫБОР ФРАКЦИИ</div>
+    <div class="fs-sub">Выбери сторону, за которую будешь играть</div>
+  </div>
+
+  <div class="fs-layout">
+    <div class="fs-list" id="fs-list"></div>
+    <div class="fs-info" id="fs-info">
+      <div class="fs-info-empty">← ВЫБЕРИ ФРАКЦИЮ ИЗ СПИСКА</div>
+    </div>
+  </div>
+
+  <div class="fs-footer">
+    <button class="aoh-btn-secondary" onclick="backToMainMenu()">← НАЗАД</button>
+    <button class="aoh-btn-primary disabled" id="fs-start-btn" onclick="confirmFaction()">ИГРАТЬ</button>
+  </div>
+</div>
+
+<!-- ============ САМА ИГРА ============ -->
+<div id="app" class="hidden">
+  <header id="header">
+    <button id="hamburger" class="hamburger" onclick="toggleLeftMenu()">☰</button>
+    <div class="logo" id="hdr-faction">—</div>
+    <div class="stat"><span>🍞</span><span class="val" id="res-food">0</span></div>
+    <div class="stat"><span>🔫</span><span class="val" id="res-ammo">0</span></div>
+    <div class="stat"><span>⚖️</span><span class="val" id="res-infl">0</span></div>
+    <div class="stat"><span>👥</span><span class="val" id="res-sold">0</span></div>
+    <div class="stat"><span>🚇</span><span class="val" id="res-stat">0</span></div>
+    <div class="stat"><span>🛤️</span><span class="val" id="res-tun">0</span></div>
+    <div id="turninfo">
+      <span style="color:#666;font-size:10px">ХОД</span> <b id="turn-num">1</b>
+      <button class="btn primary" id="btn-endturn">ЗАВЕРШИТЬ ХОД →</button>
+    </div>
+  </header>
+  <div id="main">
+    <div id="left-menu" class="left-menu hidden">
+      <div class="lm-header">
+        <span>МЕНЮ</span>
+        <button onclick="toggleLeftMenu()">✖</button>
+      </div>
+      <button class="lm-btn" onclick="closeLeftMenu();showDiplomacy()">🕊 Дипломатия</button>
+      <button class="lm-btn" onclick="closeLeftMenu();showEconomy()">🏗 Экономика</button>
+      <button class="lm-btn" onclick="closeLeftMenu();showArmy()">👥 Армия</button>
+      <button class="lm-btn" onclick="closeLeftMenu();showArmory()">🔫 Арсенал</button>
+      <button class="lm-btn" onclick="closeLeftMenu();showGoal()">🎯 Цель фракции</button>
+      <button class="lm-btn" onclick="closeLeftMenu();showHelp()">❓ Справка</button>
+      <button class="lm-btn" onclick="backToMenuFromGame()">⏏ Главное меню</button>
+      <div style="flex:1"></div>
+      <div style="font-size:10px;color:#555;padding:6px">Метро 2033: Война за Тоннели</div>
+    </div>
+
+    <div id="mapwrap">
+      <div id="map">
+        <svg id="connections" width="1400" height="1000"></svg>
+      </div>
+      <div id="zoom-hint">2 пальца — масштаб · 1 — перемещение · 2 тапа — сброс</div>
+    </div>
+
+    <aside id="sidebar" class="sidebar">
+      <button class="sidebar-close" onclick="closePanel()">✖</button>
+      <div id="stationpanel">
+        <div style="color:#666;text-align:center;padding:30px 0">
+          <div style="font-size:32px;margin-bottom:8px">🚇</div>
+          <div style="font-size:11px">Выбери станцию или тоннель</div>
+        </div>
+      </div>
+      <div id="logpanel"></div>
+    </aside>
+  </div>
+</div>
+
+<div id="modal-bg" class="hidden"><div id="modal">
+  <h3 id="modal-title"></h3>
+  <div class="body" id="modal-body"></div>
+  <div class="choices" id="modal-choices"></div>
+</div></div>
+
+<script src="js/data.js"></script>
+<script src="js/core.js"></script>
+<script src="js/map.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/actions.js"></script>
+<script src="js/combat.js"></script>
+<script src="js/menu.js"></script>
+<script src="js/ai.js"></script>
+</body>
+</html>
